@@ -2,67 +2,71 @@ package furhatos.app.interview.flow.main
 
 import furhatos.flow.kotlin.*
 import furhatos.nlu.common.*
-import kotlin.random.Random
+import okhttp3.*
+import org.json.JSONObject
 
-val questions = mutableListOf(
-    "Can you explain how you would approach solving a problem like sorting a large dataset?",
-    "How do you handle concurrency in your code? Have you worked with multi-threading before?",
-    "Can you describe a time when you had to work in a team? What role did you play and how did you handle conflicts?",
-    "Tell me about a time when you faced a challenging situation at work. How did you handle it?",
-    "How do you deal with stress or tight deadlines in your work?",
-    "What programming languages are you most comfortable with, and why?",
-    "Describe a project where you had to debug a complex problem. What was your approach?",
-    "Tell me about a time when you had to learn a new technology quickly. How did you go about it?",
-    "Have you worked in an Agile environment before? What was your role?",
-    "How do you prioritize tasks when working on multiple projects at once?"
-)
+// Helper function to interact with Hugging Face LLM
+fun reframeNegativeResponse(input: String): String {
+    val client = OkHttpClient()
+    val apiUrl = "https://api-inference.huggingface.co/models/your-model-name" // Replace with your Hugging Face model URL
+    val apiKey = "your-hugging-face-api-key" // Replace with your API key
 
-var questionCount = 0
+    val json = JSONObject()
+    json.put("inputs", "Reframe this statement positively: \"$input\"")
 
-val AskQuestion: State = state {
-    onEntry {
-        if (questionCount < 10 && questions.isNotEmpty()) {
-            val randomIndex = Random.nextInt(questions.size)
-            val selectedQuestion = questions[randomIndex]
-            questions.removeAt(randomIndex)
-            questionCount++
+    val requestBody = RequestBody.create(MediaType.get("application/json"), json.toString())
+    val request = Request.Builder()
+        .url(apiUrl)
+        .addHeader("Authorization", "Bearer $apiKey")
+        .post(requestBody)
+        .build()
 
-            furhat.ask(selectedQuestion)
-        } else {
-            goto(EndInterview)
-        }
-    }
-
-    onResponse {
-        furhat.say("Great answer!")
-        reentry()
+    client.newCall(request).execute().use { response ->
+        val responseBody = response.body()?.string() ?: return "I'm here to help you see the brighter side!"
+        val outputJson = JSONObject(responseBody)
+        return outputJson.getJSONArray("generated_text").getString(0)
     }
 }
 
+// Interview state
 val Interview: State = state {
     onEntry {
         furhat.setTexture("female")
         furhat.attend(users.random)
-        furhat.say("Welcome! Let's begin your interview.")
-        furhat.ask("To start, can you please tell me a bit about yourself?")
+        furhat.say("Welcome! Let's have a conversation. I'm here to help you see things in a more positive light.")
+        furhat.ask("To start, tell me about something that's been challenging you lately.")
     }
 
     onResponse {
-        furhat.say("Thank you for introducing yourself. Let's dive into the technical questions.")
-        goto(AskQuestion)
+        val userResponse = it.text
+        if (userResponse.containsNegativeSentiment()) { // Check if the statement seems negative
+            val reframedResponse = reframeNegativeResponse(userResponse)
+            furhat.say("I understand how that feels. Here's another way to look at it: $reframedResponse")
+        } else {
+            furhat.say("Thank you for sharing that!")
+        }
+        furhat.ask("Would you like to talk about something else?")
     }
 }
 
-val EndInterview: State = state {
+// End state
+val EndConversation: State = state {
     onEntry {
-        furhat.say("That was a great interview! We'll be in touch soon with feedback. Have a great day!")
+        furhat.say("This has been a great conversation. Remember, there's always a positive side to everything. Have a wonderful day!")
         goto(Idle)
     }
 }
 
+// Idle state
 val Idle: State = state {
     onEntry {
         furhat.say("Goodbye!")
         furhat.listen()
     }
+}
+
+// Extension function to detect negative sentiment
+fun String.containsNegativeSentiment(): Boolean {
+    val negativeKeywords = listOf("difficult", "hard", "stressful", "bad", "unfortunate", "impossible", "failure", "sad", "angry", "frustrated")
+    return negativeKeywords.any { this.contains(it, ignoreCase = true) }
 }
